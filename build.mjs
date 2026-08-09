@@ -1,6 +1,25 @@
 import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import babel from "@babel/core";
 
+// React is INLINED from node_modules, not loaded from a CDN.
+//
+// Environment-ledger rule: nothing network-dependent may be load-bearing.
+// React from cdnjs was exactly that — no CDN, no React, no app, and the
+// athlete uses this in a gym where signal is not guaranteed. There is a
+// manifest but no service worker, so a home-screen launch on a dead
+// connection rendered the "couldn't load" card and nothing else.
+//
+// Reading from node_modules (rather than fetching at build time) keeps the
+// build reproducible and offline, and pins the version to package.json —
+// 18.2.0, the same build the CDN was serving.
+const reactUMD = readFileSync("node_modules/react/umd/react.production.min.js", "utf8");
+const reactDOMUMD = readFileSync("node_modules/react-dom/umd/react-dom.production.min.js", "utf8");
+
+// A "</script>" inside an inlined bundle would close the tag early. React
+// doesn't contain one today, but a future version could, and the failure
+// would be a blank screen rather than a build error.
+const inlineSafe = (js) => js.replace(/<\/script/gi, "<\\/script");
+
 const HEAD = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -10,8 +29,8 @@ const HEAD = `<!DOCTYPE html>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Phase 1 Tracker</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script>${inlineSafe(reactUMD)}</script>
+<script>${inlineSafe(reactDOMUMD)}</script>
 <style>html,body{margin:0;padding:0;background:#14181D;} input{-webkit-appearance:none;} *{box-sizing:border-box;}</style>
 </head>
 <body>
@@ -48,6 +67,15 @@ if (/\\u[0-9a-fA-F]{4}/.test(src)) throw new Error("BUILD FAIL: literal unicode 
 
 mkdirSync("dist", { recursive: true });
 const artifact = HEAD + compiled + TAIL;
+
+// Same spirit as the unicode-escape guard above: fail the build rather than
+// ship a file that needs the network to start. Catches a re-introduced CDN
+// tag, a font link, or an analytics snippet.
+const externalRefs = artifact.match(/(?:src|href)="https?:\/\/[^"]+"/g);
+if (externalRefs) {
+  throw new Error("BUILD FAIL: external references in output — the app must boot offline:\n  " + externalRefs.join("\n  "));
+}
+
 writeFileSync("dist/phase1-tracker.html", artifact);
 
 const manifest = Buffer.from(JSON.stringify({
