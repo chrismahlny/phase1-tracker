@@ -1,0 +1,19 @@
+{
+  "name": "phase1-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Masters bodybuilding prep tracker — single-file React, local-first, Google Sheet durable store",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node build.mjs && node test/harness.test.mjs",
+    "deploy:hint": "echo 'Drag dist/index.html to app.netlify.com/drop, or: npx netlify-cli deploy --dir=dist --prod'"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.24.0",
+    "@babel/preset-react": "^7.23.3",
+    "jsdom": "^24.0.0",
+    "react": "18.2.0",
+    "react-dom": "18.2.0"
+  }
+}
