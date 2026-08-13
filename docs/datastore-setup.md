@@ -1,5 +1,28 @@
 # Durable Store Setup — Google Sheet Backend (5 minutes, one time)
 
+> **The live store was built with the STANDALONE variant: `apps-script-standalone.gs`.** It creates its
+> own `Phase1 Data Store` spreadsheet on first write, so you start at script.google.com and skip step 1
+> below. The container-bound script further down still works if you prefer making the Sheet by hand.
+>
+> Four traps cost real time on the first run — all of them produce a deployment that *looks* healthy:
+> 1. **Deployment type must be `Web app`**, set via the gear next to "Select type". Picking `Library`
+>    yields a `/macros/library/d/…` URL instead of one ending in `/exec`, and the app can't use it.
+> 2. **"Who has access" must be `Anyone`** — *not* `Anyone with Google account`, which returns HTTP 401
+>    to the app's token-authenticated fetch because it can't follow a login redirect.
+> 3. **Check which Google account you are in** before authorizing. The Apps Script project, the
+>    spreadsheet, and the `/exec` URL all live in whichever account authorizes, and the type can't be
+>    moved afterwards. Force it with `?authuser=you@example.com` on the script.google.com URL.
+> 4. Verify with `curl` before touching the app — but omit `-X POST`. Apps Script 302-redirects to a
+>    `googleusercontent.com/macros/echo` URL that must be fetched with GET (what a browser's `fetch`
+>    does automatically); `-X` forces POST across the redirect and returns a misleading 405.
+>
+> Verify a deployment in one line (expects `{"ok":true,"alive":true}`):
+> ```
+> curl -sL "<YOUR_EXEC_URL>"
+> ```
+> The endpoint URL and token are not recorded in this repo — they live in the Apps Script project and
+> in the app's DURABLE STORE fields.
+
 Your tracker now syncs every set and measurement to a Google Sheet you own — automatically, in the background, append-only (nothing can ever be overwritten or deleted). This is the layer that makes your history survive cleared browsers, lost phones, and everything else.
 
 ## Setup steps
