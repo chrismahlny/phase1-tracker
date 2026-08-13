@@ -91,7 +91,7 @@ const DEFAULT_KG = 93.4; // ~206 lb fallback until a weight is logged
 const DAY_TO_PLAN = ["rest", "push", "pull", "legsA", "upper", "legsB", "pump"]; // getDay() index
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const ADDABLE = ["push", "pull", "legsA", "upper", "legsB", "pump"];
-const APP_VERSION = "1.0.0";
+const APP_VERSION = "1.0.2";
 const doneCount = (day) => Object.values((day && day.log) || {}).filter((ss) => ss.done).length;
 const mergeSnapshots = (loc, rem) => {
   if (!rem) return loc;
@@ -782,17 +782,35 @@ function App() {
       if (today) { setSessions(today.sessions || [DAY_TO_PLAN[new Date().getDay()]]); setLog(today.log || {}); setNotes(today.notes || {}); setFinished(!!today.finished); }
       setMeasDraft((merged.measurements || {})[dateRef.current] || {});
       setStoreMsg("history restored from store");
-    } catch (e) { /* store down — local carries on */ }
+    } catch (e) { setStoreMsg("store unreachable — training continues on this device; will retry"); }
   };
 
   const saveRemote = async () => {
+    const url = (remoteDraft.current.url || "").trim();
+    const token = (remoteDraft.current.token || "").trim();
+    if (!url) { setStoreMsg("no endpoint yet — paste your Apps Script /exec URL (5-min setup: datastore guide)"); return; }
+    if (url.indexOf("https://script.google.com/") !== 0 || url.indexOf("/exec") === -1) {
+      setStoreMsg("that doesn't look like an Apps Script URL — it should start with https://script.google.com/ and end in /exec");
+      return;
+    }
     const cur = stateRef.current.store;
-    const next = { ...cur, remote: { url: (remoteDraft.current.url || "").trim(), token: (remoteDraft.current.token || "").trim() } };
+    const next = { ...cur, remote: { url, token } };
     setStore(next);
     setStoreMsg("connecting…");
     try { await storageAdapter.set(STORE_KEY, JSON.stringify(next)); } catch (e) {}
-    flushOutbox(next);
-    setTimeout(() => pullMerge(), 400);
+    try {
+      const r = await fetchWithTimeout(url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ token, op: "pull" }) }, 15000);
+      const res = await r.json();
+      if (res && res.ok) {
+        setStoreMsg(res.snapshot ? "store connected ✓ — history found, restoring…" : "store connected ✓ — vault is ready and empty");
+        flushOutbox(next);
+        pullMerge(next);
+      } else {
+        setStoreMsg("store reachable but said no: " + ((res && res.error) || "token mismatch — check it matches line 1 of the script"));
+      }
+    } catch (e) {
+      setStoreMsg("couldn't reach the store: " + ((e && e.message) || "check the URL, and that the script is deployed as Web app / access: Anyone"));
+    }
   };
 
   const prevMeasFor = (id) => {
@@ -858,6 +876,18 @@ function App() {
     try { await storageAdapter.set(STORE_KEY, JSON.stringify(next)); }
     catch (e) { setSync({ status: "error", msg: "local save failed — data may not persist" }); }
     syncToDrive(next);
+  };
+
+  const restoreSmart = async () => {
+    if (IN_ARTIFACT()) return restoreFromDrive();
+    const S = stateRef.current.store;
+    if (!S.remote || !S.remote.url) {
+      setSync({ status: "error", msg: "no store connected yet — open ⚙ → export → DURABLE STORE and do the 5-minute Sheet setup; that's where restore pulls from" });
+      return;
+    }
+    setSync({ status: "syncing", msg: "restoring" });
+    await pullMerge();
+    setSync({ status: "ok", msg: "restore ran — see store status under ⚙ → export" });
   };
 
   const finishWorkout = async () => {
@@ -957,7 +987,7 @@ function App() {
         {showUtils && (
           <div style={{ display: "flex", gap: 14, marginTop: 8, alignItems: "center" }}>
             <button onClick={() => setShowExport(!showExport)} style={{ background: "none", border: "none", color: T.gold, fontSize: 12, fontWeight: 700 }}>export</button>
-            <button onClick={restoreFromDrive} style={{ background: "none", border: "none", color: T.green, fontSize: 12, fontWeight: 700 }}>restore from Drive</button>
+            <button onClick={restoreSmart} style={{ background: "none", border: "none", color: T.green, fontSize: 12, fontWeight: 700 }}>{IN_ARTIFACT() ? "restore from Drive" : "restore"}</button>
             <button onClick={resetProgram} style={{ background: confirmReset ? T.red : "none", border: "none", borderRadius: 6, padding: confirmReset ? "3px 8px" : 0, color: confirmReset ? "#fff" : "#4A545F", fontSize: 12, fontWeight: confirmReset ? 800 : 400 }}>{confirmReset ? "tap again to erase history" : "reset week 1"}</button>
           </div>
         )}
@@ -989,7 +1019,7 @@ function App() {
                 style={{ marginTop: 6, width: "100%", boxSizing: "border-box", background: T.surface2, border: `1px solid ${T.line}`, borderRadius: 8, color: T.text, padding: "10px", fontSize: 13 }} />
               <button onClick={saveRemote} style={{ marginTop: 8, width: "100%", padding: "12px", borderRadius: 8, fontSize: 14, fontWeight: 800, background: T.green, color: "#14181D", border: "none" }}>CONNECT & SYNC</button>
               <div style={{ marginTop: 6, fontSize: 12, color: T.muted }}>
-                {(store.outbox || []).length ? (store.outbox || []).length + " event(s) queued · " : ""}{store.remote && store.remote.url ? (storeMsg || "store connected") : "no store connected — history relies on this device + exports"}
+                {(store.outbox || []).length ? (store.outbox || []).length + " event(s) queued · " : ""}{storeMsg || (store.remote && store.remote.url ? "store connected" : "no store connected — history relies on this device + exports")}
               </div>
             </div>
           </div>

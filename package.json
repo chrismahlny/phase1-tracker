@@ -1,13 +1,13 @@
 {
   "name": "phase1-tracker",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "private": true,
   "type": "module",
   "description": "Masters bodybuilding prep tracker — single-file React, local-first, Google Sheet durable store",
   "scripts": {
     "build": "node build.mjs",
     "test": "node build.mjs && node test/harness.test.mjs",
-    "deploy:hint": "echo 'Drag dist/index.html to app.netlify.com/drop, or: npx netlify-cli deploy --dir=dist --prod'"
+    "deploy:hint": "echo 'Drag the dist FOLDER onto app.netlify.com > sites > getitoldman > Deploys (not /drop, which makes a new site). Verify: curl -s https://getitoldman.netlify.app/ | grep -c rel=\\\"manifest\\\" => 1'"
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",

@@ -9,6 +9,12 @@ const require = createRequire(import.meta.url);
 const html = readFileSync("dist/phase1-tracker.html", "utf8");
 const src = html.match(/<script id="app">([\s\S]*?)<\/script>/)[1];
 
+// Read the expected stamp from the JSX source rather than hardcoding it, so a
+// version bump doesn't fail a check that is really asking "does the footer
+// render the version the source declares?"
+const APP_VERSION = readFileSync("src/phase1-workout-app.jsx", "utf8")
+  .match(/APP_VERSION\s*=\s*"([^"]+)"/)[1];
+
 const results = [];
 const pass = (n) => results.push("PASS  " + n);
 const fail = (n, d) => results.push("FAIL  " + n + (d ? " — " + String(d).slice(0, 120) : ""));
@@ -75,7 +81,7 @@ const main = async () => {
   B().includes("PHASE 1") && B().includes("WEEK 1") ? pass("boots on pinned Monday, header renders") : fail("boot", B().slice(0, 80));
   B().includes("Push") ? pass("Monday auto-loads Push") : fail("day detection");
   B().includes("“") ? pass("daily discipline line renders") : fail("daily line");
-  B().includes("v1.0.0") ? pass("version stamp present") : fail("version stamp");
+  B().includes("v" + APP_VERSION) ? pass("version stamp present (v" + APP_VERSION + ")") : fail("version stamp", "expected v" + APP_VERSION);
   W.errs.length === 0 ? pass("zero console errors on boot") : fail("console errors", W.errs[0]);
 
   // log a set with weight; verify persistence + read-back health
