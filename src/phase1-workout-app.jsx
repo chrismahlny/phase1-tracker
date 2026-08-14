@@ -91,7 +91,7 @@ const DEFAULT_KG = 93.4; // ~206 lb fallback until a weight is logged
 const DAY_TO_PLAN = ["rest", "push", "pull", "legsA", "upper", "legsB", "pump"]; // getDay() index
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const ADDABLE = ["push", "pull", "legsA", "upper", "legsB", "pump"];
-const APP_VERSION = "1.0.2";
+const APP_VERSION = "1.0.3";
 const doneCount = (day) => Object.values((day && day.log) || {}).filter((ss) => ss.done).length;
 const mergeSnapshots = (loc, rem) => {
   if (!rem) return loc;
@@ -405,6 +405,7 @@ function App() {
   const [confirmReset, setConfirmReset] = useState(false);
   const [expanded, setExpanded] = useState({});
   const [showUtils, setShowUtils] = useState(false);
+  const [updateVer, setUpdateVer] = useState(null); // version string on the server, when newer than this build
   const remoteDraft = useRef({});
   const flushTimer = useRef(null);
   const stateRef = useRef({});
@@ -461,6 +462,40 @@ function App() {
       pullMerge(base); // boot-time restore from the durable store (fire-and-forget)
     })();
   }, []);
+
+  // ---------- new-version check ----------
+  // build.mjs writes version.json beside index.html. If it names a version other than
+  // the one compiled into this build, offer an update. Checked on boot and whenever the
+  // app comes back to the foreground, which is when a home-screen PWA — holding a copy
+  // that can be weeks old — would otherwise never notice.
+  //
+  // Ledger rule 1: this must never be load-bearing. Offline, a missing version.json, an
+  // HTML error page where JSON was expected — every failure path leaves the app exactly
+  // as it was, with no banner and nothing logged. Skipped entirely in the artifact build,
+  // which has no sibling version.json to fetch.
+  useEffect(() => {
+    if (IN_ARTIFACT()) return;
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const r = await fetch("version.json?t=" + Date.now(), { cache: "no-store" });
+        if (!r.ok) return;
+        const j = await r.json();
+        if (!cancelled && j && j.version && j.version !== APP_VERSION) setUpdateVer(j.version);
+      } catch (e) { /* offline, or no version.json deployed — stay quiet */ }
+    };
+    check();
+    const onVis = () => { if (document.visibilityState === "visible") check(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { cancelled = true; document.removeEventListener("visibilitychange", onVis); };
+  }, []);
+
+  // Reload past any cached copy. Netlify serves the HTML must-revalidate, but a
+  // home-screen PWA can still hold a stale one; the query string forces a fresh fetch.
+  // Never automatic — a reload during a working set is the athlete's call, not the app's.
+  const installUpdate = () => {
+    window.location.replace(window.location.pathname + "?v=" + encodeURIComponent(updateVer || ""));
+  };
 
   // ---------- save ----------
   const saveDay = useCallback(async (overrides = {}) => {
@@ -984,6 +1019,15 @@ function App() {
           </div>
           <button onClick={() => setShowUtils(!showUtils)} style={{ background: showUtils ? T.surface : "none", border: `1px solid ${showUtils ? T.line : "transparent"}`, borderRadius: 8, color: T.muted, fontSize: 15, padding: "2px 10px", lineHeight: 1.3 }}>⚙</button>
         </div>
+        {updateVer && (
+          <div style={{ marginTop: 10, background: T.gold, color: "#14181D", borderRadius: 10, padding: "10px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 800 }}>Version {updateVer} is ready</div>
+              <div style={{ fontSize: 11, fontWeight: 600, opacity: 0.75 }}>Your logged sets are saved — safe to install mid-session.</div>
+            </div>
+            <button onClick={installUpdate} style={{ background: "#14181D", color: T.gold, border: "none", borderRadius: 8, padding: "9px 14px", fontSize: 13, fontWeight: 800, whiteSpace: "nowrap" }}>INSTALL</button>
+          </div>
+        )}
         {showUtils && (
           <div style={{ display: "flex", gap: 14, marginTop: 8, alignItems: "center" }}>
             <button onClick={() => setShowExport(!showExport)} style={{ background: "none", border: "none", color: T.gold, fontSize: 12, fontWeight: 700 }}>export</button>

@@ -20,7 +20,7 @@ const pass = (n) => results.push("PASS  " + n);
 const fail = (n, d) => results.push("FAIL  " + n + (d ? " — " + String(d).slice(0, 120) : ""));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function makeWorld({ storage = "good" } = {}) {
+function makeWorld({ storage = "good", fetchImpl = null } = {}) {
   const dom = new JSDOM('<!DOCTYPE html><html><body><div id="root"></div></body></html>', {
     url: "https://claude.ai/", pretendToBeVisual: true,
   });
@@ -48,6 +48,7 @@ function makeWorld({ storage = "good" } = {}) {
   global.fetch = dom.window.fetch = async (u, o) => {
     structuredClone(o); // artifact bridge clones options — non-cloneable opts must fail here too
     fetchCalls.push({ u, body: o && o.body ? JSON.parse(o.body) : null });
+    if (fetchImpl) return fetchImpl(u, o); // may throw/reject: offline paths must stay silent
     return { json: async () => ({ ok: true, content: [], snapshot: null, acked: (o && o.body && JSON.parse(o.body).events || []).map((e) => e.id) }) };
   };
   global.React = require("react");
@@ -177,6 +178,47 @@ const main = async () => {
   const rec = JSON.parse(W3.dom.window.localStorage.getItem("phase1-tracker-v2"));
   rec.history["2026-07-12"] && rec.measurements["2026-07-01"].weight === "204" && rec.lastWeights.legpress === "270" && rec.startDate === "2026-07-01"
     ? pass("GATE 4: blank device fully restores from store") : fail("recovery", JSON.stringify(rec).slice(0, 120));
+
+  // ---------- world 4: new-version banner ----------
+  // storage:"none" so IN_ARTIFACT() is false — the check is deliberately skipped in the
+  // artifact build, which has no sibling version.json.
+  const verWorld = (impl) => makeWorld({ storage: "none", fetchImpl: impl });
+  const versionServer = (v) => async (u) =>
+    String(u).indexOf("version.json") !== -1
+      ? { ok: true, json: async () => ({ version: v, builtAt: "2026-08-12T00:00:00Z" }) }
+      : { json: async () => ({ ok: true, snapshot: null, acked: [] }) };
+
+  const W4 = verWorld(versionServer("9.9.9"));
+  await sleep(150);
+  const B4 = () => W4.dom.window.document.body.textContent;
+  B4().includes("Version 9.9.9 is ready") ? pass("newer version -> update banner appears") : fail("update banner", B4().slice(0, 90));
+  W4.byText("INSTALL") ? pass("update banner offers an INSTALL button") : fail("install button missing");
+  W4.errs.length === 0 ? pass("version check logs no console errors") : fail("version check errors", W4.errs[0]);
+
+  // same version must NOT nag — this is the case that runs every foreground, every day
+  const W5 = verWorld(versionServer(APP_VERSION));
+  await sleep(150);
+  !W5.dom.window.document.body.textContent.includes("is ready") && !W5.byText("INSTALL")
+    ? pass("same version -> no banner") : fail("spurious update banner");
+
+  // ledger rule 1: the check must never be load-bearing. Offline => app unaffected, silent.
+  const W6 = verWorld(async () => { throw new Error("offline"); });
+  await sleep(150);
+  const B6 = () => W6.dom.window.document.body.textContent;
+  !B6().includes("is ready") && B6().includes("PHASE 1") && W6.errs.length === 0
+    ? pass("version check offline -> silent, app unaffected") : fail("offline version check", W6.errs[0] || B6().slice(0, 80));
+
+  // a 404 (version.json missing from a deploy) must read as "no update", not as a crash
+  const W7 = verWorld(async (u) => String(u).indexOf("version.json") !== -1
+    ? { ok: false, status: 404, json: async () => { throw new Error("not json"); } }
+    : { json: async () => ({ ok: true, snapshot: null, acked: [] }) });
+  await sleep(150);
+  !W7.dom.window.document.body.textContent.includes("is ready") && W7.errs.length === 0
+    ? pass("missing version.json -> no banner, no error") : fail("404 version.json", W7.errs[0]);
+
+  // the build must actually emit what the app polls for
+  const vj = JSON.parse(readFileSync("dist/version.json", "utf8"));
+  vj.version === APP_VERSION ? pass(`build emits dist/version.json (v${vj.version})`) : fail("version.json mismatch", JSON.stringify(vj));
 
   console.log(results.join("\n"));
   const fails = results.filter((r) => r.startsWith("FAIL")).length;

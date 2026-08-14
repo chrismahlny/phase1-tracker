@@ -86,4 +86,10 @@ writeFileSync("dist/index.html", artifact.replace(
   "<title>Phase 1 Tracker</title>",
   `<title>Phase 1 Tracker</title>\n<link rel="manifest" href="data:application/manifest+json;base64,${manifest}">`
 ));
-console.log("built: dist/phase1-tracker.html (artifact) + dist/index.html (standalone)");
+// version.json is what the running app polls to discover that a newer build is live.
+// It ships beside index.html; if it is missing from a deploy the app simply never
+// offers an update, which is the safe direction to fail in.
+const version = (src.match(/APP_VERSION\s*=\s*"([^"]+)"/) || [, "0.0.0"])[1];
+writeFileSync("dist/version.json", JSON.stringify({ version, builtAt: new Date().toISOString() }) + "\n");
+
+console.log(`built: dist/phase1-tracker.html (artifact) + dist/index.html (standalone) + dist/version.json (v${version})`);
